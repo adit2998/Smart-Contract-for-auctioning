@@ -1,0 +1,238 @@
+pragma solidity ^0.4.17;
+
+
+contract Real_Estate_Factory{
+    address[] public deployed_Real_Estates; // these will be of various categories
+    
+    function create_Real_Estate(uint minimum, uint bidInc, uint[3] highestBinding) public{
+        address newRealEstate = new Real_Estate_Advertisement(minimum, bidInc, highestBinding);
+        deployed_Real_Estates.push(newRealEstate);
+    }
+    
+    function getDeployed_Real_Estates() public view returns (address[]) {
+        return deployed_Real_Estates;
+    }
+}
+
+
+contract Real_Estate_Advertisement {
+    
+    struct Advertisement {
+        string Description;
+        uint value;
+        address owner;
+        bool status; // status to show wheather the property has been sold or not
+        bool withdrawn; // to check wheather the owner has received the money
+        //mapping(address=>uint) highestBindingBid;
+    } 
+    
+    //The bidders should enter the at least the amount specified by manager to enter the auction (this is non refundable)
+    Advertisement[] public advertisements;
+    uint bidIncrement;
+    bool public cancelled;
+    address public manager;
+    uint[3] public highestBindingBid;
+    bool ownerHasWithdrawn;
+    mapping(address=>uint256) public fundsByBidder; // mapping addresses to fundsByBidder to keep track of who sent how much money
+    mapping(uint256=>address) public highestBidder;
+    mapping(address=>bool) public enteredPeople;
+    uint public minimumAmount; // minimum amount that the owner wants to sell the real estates for.. starting amount of each auction
+    mapping(uint=>address[4]) public bidders_inAuction;
+    mapping(address=>uint256) public newBid;
+    mapping(address=>uint256) public highestBid;
+    
+    uint[4] public number=[0, 0, 0, 0];
+    bool[4] public complete = [false, false, false, false];
+    
+    uint[] public  withdrawalAmount = [0];
+
+    
+    modifier onlyManager() {
+        require(msg.sender==manager);
+        _;
+    }
+    
+    modifier onlyNotManager() {
+        require(msg.sender!=manager);
+        _;
+    }
+   
+     
+    modifier untilNotCancelled() {
+        require(cancelled!=true);
+        _;
+    }
+    
+    modifier onlyEnteredPeople() {
+        require(enteredPeople[msg.sender]==true);
+        _;
+    }
+    
+    
+    function onComplete(uint index) public onlyManager returns (bool success){
+        complete[index]=true;
+        return true;
+    }
+
+    function Real_Estate_Advertisement(uint _minimumAmount, uint _bidIncrement, uint[3] _highestBindingBid) public{
+        manager = msg.sender;
+        minimumAmount = _minimumAmount;
+        bidIncrement = _bidIncrement;
+        highestBindingBid = _highestBindingBid;
+    }
+    
+    function enterAuction(uint index) public payable onlyNotManager untilNotCancelled {
+            require(msg.value>=minimumAmount);
+            bidders_inAuction[index][number[index]] = msg.sender;
+            number[index]++;
+            //bidders.push(msg.sender);
+            enteredPeople[msg.sender]=true;
+        
+        
+    }
+    
+    
+    function createAdvertisement(string Description, uint value, address owner) public onlyManager {
+        Advertisement memory newAdvertisement = Advertisement({
+            Description: Description,
+            value: value,
+            owner: owner,
+            status: false,
+            withdrawn:false
+        });
+        //startingValue = _startingValue;
+        //highestBindingBid = value;
+        
+       /* highestBindingBid[index] = value;
+        index++;*/
+        
+        advertisements.push(newAdvertisement);
+    }
+
+    
+    
+    function placeBid(uint id_number) payable 
+    onlyNotManager
+    untilNotCancelled
+    onlyEnteredPeople
+    returns (bool success) {
+        
+        
+                //Advertisement storage advertisement = advertisements[index];
+            
+            
+            if(msg.value==0) throw;
+            
+            //Calculate new funds that bidders are placing in the auction
+            fundsByBidder[msg.sender] = fundsByBidder[msg.sender] + msg.value;
+            newBid[msg.sender] = fundsByBidder[msg.sender];
+            
+            //----------------------------------------------------------------------------------------------
+            if(newBid[msg.sender]>highestBindingBid[id_number]) {
+                    //grab the previous highest bid before updating fundsByBidder in case msg.sender is the highestBidder
+                //and just wants to increase their bid
+                
+                
+                highestBid[msg.sender] = fundsByBidder[highestBidder[id_number]];
+                //uint highestBid = fundsByBidder[highestBidder[fundsByBidder[msg.sender]]];
+                
+                //fundsByBidder[msg.sender] = newBid;
+                
+                if(newBid[msg.sender]<highestBid[msg.sender]) {
+                    // if the new bid is greated than highestBindingBid but lower than highestBid, 
+                    // simply increase highestBindingBid and no change to highestBid
+                    
+                    if((newBid[msg.sender]+bidIncrement)<highestBid[msg.sender]) {
+                        highestBindingBid[id_number] = newBid[msg.sender]+bidIncrement;
+                    } else {
+                        highestBindingBid[id_number] = highestBid[msg.sender];
+                    }
+                    //highestBindingBid = min(newBid+bidIncrement, highestBid);
+                }
+                else {
+                    // in this, if msg.sender is already the highest bidder, they may simply want to increase their amount
+                    // in which case just update highestBid and no change to highestBindingBid
+                    
+                    // But if the new user(ie msg.sender) is not highest Bidder and has outbid the highest bid, 
+                    // then make them the highest bidder and recalculate highestBindingBid
+                    
+                    if(msg.sender!=highestBidder[id_number]) {
+                        highestBidder[id_number] = msg.sender;
+                        if(newBid[msg.sender]<(highestBindingBid[id_number]+bidIncrement)) {
+                            highestBindingBid[id_number] = newBid[msg.sender];
+                        } else {
+                            if(highestBid[msg.sender]!=0){
+                                highestBindingBid[id_number] = highestBid[msg.sender]+bidIncrement;
+                            }
+                        }
+                        //highestBindingBid = min(newBid, highestBid+bidIncrement);
+                    }
+                    
+                    highestBid[msg.sender] = newBid[msg.sender];
+                    
+                }
+            } else {
+                throw;
+            }
+            
+            
+            return true;    
+        
+    }
+    
+    
+    
+    function withdraw(uint index) returns(bool success) {
+        
+        //Do a case for withdrawal when the auction is cancelled
+        if(complete[index]==true)
+        {
+            //uint public x;
+            Advertisement storage advertisement = advertisements[index];
+
+            if(msg.sender==manager) {
+                withdrawalAmount[index] = highestBindingBid[index];
+                //x=highestBindingBid[index];
+                advertisement.owner.transfer(highestBindingBid[index]);
+                advertisement.status=true;
+                advertisement.withdrawn=true;
+            }
+            
+            
+            else if(msg.sender==highestBidder[index]) {
+                if(advertisement.withdrawn==true){
+                    withdrawalAmount[index] = fundsByBidder[highestBidder[index]];
+                    highestBidder[index].transfer(fundsByBidder[highestBidder[index]]);
+                }
+                
+                else {
+                    uint newAmount = fundsByBidder[highestBidder[index]] - highestBindingBid[index];
+                    withdrawalAmount[index] = newAmount;
+                    highestBidder[index].transfer(newAmount);
+                }
+               // highestBidder[index].transfer();
+                
+            }
+            
+            else {
+                msg.sender.transfer(fundsByBidder[msg.sender]);
+            }
+            
+            
+            fundsByBidder[msg.sender] -= withdrawalAmount[index];
+        
+        }
+        return true;
+    }
+    
+    
+    function getSummary(uint index) public view returns (address, uint, address, uint) {
+        return (
+                manager,
+                highestBindingBid[index],
+                highestBidder[index],
+                highestBid[highestBidder[index]]
+            );
+    }
+    
+}
